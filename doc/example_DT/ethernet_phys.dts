@@ -1,0 +1,29 @@
+ethernet@02188000 {
+
+	...
+
+	mdio {
+
+		...
+
+		phy0: ethernet-phy@8	 {
+			reg = <0x8>;
+			max-speed = <0x64>;
+		};
+
+		phy1: ethernet-phy@9 {
+			reg = <0x9>;
+			max-speed = <0x64>;
+		};
+
+		phy2: ethernet-phy@e {
+			reg = <0xe>;
+			max-speed = <0x64>;
+		};
+
+		phy3: ethernet-phy@f {
+			reg = <0xf>;
+			max-speed = <0x64>;
+		};
+	};
+};

@@ -1,0 +1,47 @@
+spi@40057000 {
+
+	...
+
+	sja1105p@0 {
+		compatible = "nxp,sja1105p-switch";
+		firmware_name = "sja1105p-1_cfg.bin"; /* optional */
+		spi-max-frequency = <0x17d7840>;
+		spi-cpha;
+		reg = <0x0>;
+
+		port-0 {
+			is-host = <0x1>;
+			null-phy = <0x1>;
+			phy-ref = < 0 >;
+			logical-port-num = < 0 >;
+		};
+
+		port-1 {
+			is-host = <0x0>;
+			null-phy = <0x1>;
+			phy-ref = < 0 >;
+			logical-port-num = < 0xff >;
+		};
+
+		port-2 {
+			is-host = <0x0>;
+			null-phy = <0x0>;
+			phy-ref = < &phy0 >;
+			logical-port-num = < 1 >;
+		};
+
+		port-3 {
+			is-host = <0x0>;
+			null-phy = <0x0>;
+			phy-ref = < &phy1 >;
+			logical-port-num = < 2 >;
+		};
+
+		port-4 {
+			is-host = <0x0>;
+			null-phy = <0x0>;
+			phy-ref = < &phy2 >;
+			logical-port-num = < 3 >;
+		};
+	};
+};
