@@ -32,6 +32,7 @@
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
 
+#include "sja1105p_init.h"
 #include "sja1105p_spi_linux.h"
 #include "sja1105p_cfg_file.h"
 #include "sja1105p_general_status.h"
@@ -41,7 +42,6 @@
 
 #define BUFSIZE 20
 
-extern int verbosity;
 static struct dentry *sja_dentry[SJA1105P_N_SWITCHES];
 
 static int sja1105p_general_id_show(struct seq_file *s, void *data)

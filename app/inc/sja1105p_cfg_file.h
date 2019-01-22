@@ -32,6 +32,8 @@
 
 
 #include <linux/list.h>
+#include <linux/spi/spi.h>
+#include <linux/platform_device.h>
 
 #define SJA1105P_PORT_NB 5
 

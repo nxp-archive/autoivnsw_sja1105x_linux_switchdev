@@ -30,6 +30,8 @@
 #ifndef _SJA1105P_SPI_LINUX_H
 #define _SJA1105P_SPI_LINUX_H
 
+#include <linux/spi/spi.h>
+
 /*
  * The configuration must be loaded into SJA1105P starting from 0x20000
  * The configuration must be split in 64 words block transfers
@@ -52,7 +54,7 @@
 #define CMD_ENCODE_WRD_CNT(_cnt_)  (((_cnt_) & WIDTH2MASK(CMD_REG_RD_CNT_WIDTH)) << CMD_REG_RD_CNT_SHIFT)
 
 
-void register_spi_callback(struct spi_device *spi, int device_select, int active_switches);
+void register_spi_callback(struct spi_device *spi, int active_switches);
 void unregister_spi_callback(int active_switches);
 
 u32 sja1105p_read_reg32(struct spi_device *spi, u32 reg_addr);

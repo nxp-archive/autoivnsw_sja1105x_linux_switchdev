@@ -51,10 +51,6 @@
 
 #define SGMII_PORT 4U
 
-#define CLOCK_DELAY_81DEG 810U  /**< 81.0 degrees */
-#define MINIMUM_CLK_DELAY 738U  /**< 73.8 degrees */
-#define STEPSIZE_CLK_DELAY  9U  /**<  0.9 degrees */
-
 /******************************************************************************
 * INTERNAL VARIABLES
 *****************************************************************************/
@@ -119,9 +115,45 @@ extern uint8_t SJA1105P_autoConfigPorts(void)
 	return ret;
 }
 
+/**
+* \brief Set CFG PAD Mii for a given port
+*
+* \param[in]  pd Power down true or false
+* \param[in]  bypass true or false
+* \param[in]  port Port to be configured
+* \param[in]  switchId Switch at which the delay should be configured
+* \param[in]  direction Selection of delay in Tx or Rx direction
+*
+* \return uint8_t Returns 0 upon successful configuration, else non-zero.
+*/
+uint8_t SJA1105P_setCfgPad(bool pd, bool bypass, uint8_t port, uint8_t switchId, SJA1105P_direction_t direction)
+{
+	uint8_t ret;
+	SJA1105P_cfgPadMiixIdArgument_t cfgPadMiixId;
+
+	ret = SJA1105P_getCfgPadMiixId(&cfgPadMiixId, port, switchId);
+
+	if (direction == SJA1105P_e_direction_TX)
+	{
+		cfgPadMiixId.txcPd = pd;
+		cfgPadMiixId.txcBypass = bypass;
+	}
+	else
+	{
+		cfgPadMiixId.rxcPd = pd;
+		cfgPadMiixId.rxcBypass = bypass;
+	}
+
+	if (ret == 0U)
+	{  /* Only set delay if register read was successful */
+		ret = SJA1105P_setCfgPadMiixId(&cfgPadMiixId, port, switchId);
+	}
+
+	return ret;
+}
 
 /**
-* \brief Setup a clock delay at a given port. 
+* \brief Setup a clock delay at a given port.
 *
 * \param[in]  delay (0.1 degrees) Delay value in multiple of 0.1 degrees.
 * Programmable values are between 73.8 and 101.7 degrees with 0.9 degrees
@@ -163,7 +195,7 @@ extern uint8_t SJA1105P_setupClockDelay(uint16_t delay, uint8_t port, uint8_t sw
 
 
 /**
-* \brief Reset a clock delay at a given port. 
+* \brief Reset a clock delay at a given port.
 *
 * \param[in]  port Port to be configured
 * \param[in]  switchId switch at which the delay should be configured
@@ -174,37 +206,60 @@ extern uint8_t SJA1105P_setupClockDelay(uint16_t delay, uint8_t port, uint8_t sw
 extern uint8_t SJA1105P_resetClockDelay(uint8_t port, uint8_t switchId, SJA1105P_direction_t direction)
 {
 	uint8_t ret;
-	SJA1105P_cfgPadMiixIdArgument_t cfgPadMiixId;
 
-	ret = SJA1105P_getCfgPadMiixId(&cfgPadMiixId, port, switchId);
-	if (ret != 0U)
+	ret = SJA1105P_setCfgPad(true, true, port, switchId, direction);
+	if (ret)
 		return ret;
 
-	if (direction == SJA1105P_e_direction_TX)
-	{
-		cfgPadMiixId.txcPd = 1;
-		cfgPadMiixId.txcBypass = 1;
-	}
-	else
-	{
-		cfgPadMiixId.rxcPd = 1;
-		cfgPadMiixId.rxcBypass = 1;
-	}
+	return SJA1105P_setCfgPad(false, false, port, switchId, direction);
+}
 
-	ret = SJA1105P_setCfgPadMiixId(&cfgPadMiixId, port, switchId);
+/**
+* \brief Set the speed for a given port in the MAC CFG Table.
+*
+* \param[in]  port Port to be configured
+* \param[in]  switchId switch at which the delay should be configured
+* \param[in]  speed Speed to be set.
+*
+* \return uint8_t Returns 0 upon successful configuration, else failed.
+*/
+extern uint8_t SJA1105P_setSpeed(uint8_t port, uint8_t switchId, SJA1105P_speed_t speed)
+{
+	int ret = 0;
+	SJA1105P_macCfgTableControlArgument_t macCfgTableControl = {0};
+	SJA1105P_macCfgTableEntryArgument_t macCfgTableEntry = {0};
 
-	if (direction == SJA1105P_e_direction_TX)
-	{
-		cfgPadMiixId.txcPd = 0;
-		cfgPadMiixId.txcBypass = 0;
-	}
-	else
-	{
-		cfgPadMiixId.rxcPd = 0;
-		cfgPadMiixId.rxcBypass = 0;
-	}
+	/* read the table entry to be configured */
+	macCfgTableControl.port = port;
+	macCfgTableControl.valid = 1;
+	macCfgTableControl.rdwrset = 0; /* read access */
+	ret = SJA1105P_setMacCfgTableControl(&macCfgTableControl, switchId);
 
-	ret = SJA1105P_setCfgPadMiixId(&cfgPadMiixId, port, switchId);
+	ret += SJA1105P_getMacCfgTableEntry(&macCfgTableEntry, switchId);
+	if (ret)
+		return ret;
+
+	switch (speed) {
+	/* Values taken from reference manual, Table "MAC configuration table reconfiguration register 1" */
+	case SJA1105P_e_speed_10_MBPS:
+		macCfgTableEntry.speed = 3U;
+		break;
+	case SJA1105P_e_speed_100_MBPS:
+		macCfgTableEntry.speed = 2U;
+		break;
+	case SJA1105P_e_speed_1_GBPS:
+		macCfgTableEntry.speed = 1U;
+		break;
+	default:
+		return -1;
+	}
+	ret += SJA1105P_setMacCfgTableEntry(&macCfgTableEntry, switchId);
+
+	/* write back the modified table entry */
+	macCfgTableControl.port = port;
+	macCfgTableControl.valid = 1;   /* trigger dynamic change of entry with given index */
+	macCfgTableControl.rdwrset = 1; /* write access */
+	ret += SJA1105P_setMacCfgTableControl(&macCfgTableControl, switchId);
 
 	return ret;
 }
@@ -277,6 +332,26 @@ extern uint8_t initSgmii(uint8_t switchId, uint8_t autoNegotiation, SJA1105P_spe
 	}
 
 	return ret;
+}
+
+/**
+* \brief Reconfigure a RGMII port whose CGU settings need to be updated after a link speed change
+*
+* \param[in]  port Port to be configured
+* \param[in]  switchId SwitchId of the port to be configured
+*
+* \return uint8_t Returns 0 upon successful configuration, else failed.
+*/
+uint8_t SJA1105P_reconfigPort(uint8_t port, uint8_t switchId, uint8_t new_speed)
+{
+	uint8_t ret;
+	SJA1105P_portStatusMiixArgument_t portStatus;
+
+	ret = SJA1105P_getPortStatusMiix(&portStatus, port, switchId);
+	if (ret)
+		return ret;
+
+	return configPort(port, switchId, new_speed, portStatus.xmiiMode, portStatus.phyMode);
 }
 
 /**
@@ -353,21 +428,23 @@ static uint8_t configPort(uint8_t port, uint8_t switchId,  SJA1105P_speed_t spee
 		case SJA1105P_e_xmiiMode_RGMII:
 		{
 			ret  = makeTxPinsHighSpeed(port, switchId);
-			if (port != SJA1105P_g_generalParameters.cascPort[switchId])
-			{  /* only add the delay on the host port side, not on the opposite (cascaded port) to avoid having the delay twice */
-				ret += SJA1105P_setupClockDelay(CLOCK_DELAY_81DEG, port, switchId, SJA1105P_e_direction_TX);
-				ret += SJA1105P_setupClockDelay(CLOCK_DELAY_81DEG, port, switchId, SJA1105P_e_direction_RX);
-			}
 			miixClockControlRegister.clksrc = getClkSrcAtPort(SJA1105P_e_clkSrcCategory_IDIV, port);
-			if (speed != SJA1105P_e_speed_100_MBPS)
+			if (speed == SJA1105P_e_speed_100_MBPS)
 			{
-				if (speed == SJA1105P_e_speed_1_GBPS)
-				{
-					idivCControlRegister.pd = 1;  /* switch off to save power */
-					miixClockControlRegister.clksrc = SJA1105P_e_clksrc_PLL0;
-				}
-				ret += SJA1105P_setIdivCControlRegister(&idivCControlRegister, port, switchId);
+				idivCControlRegister.idiv = SJA1105P_e_idiv_BY_1;
+				idivCControlRegister.autoblock = 0;
 			}
+			else if (speed == SJA1105P_e_speed_1_GBPS)
+			{
+				idivCControlRegister.autoblock = 0;
+				idivCControlRegister.pd        = 1;  /* switch off to save power */
+				idivCControlRegister.idiv      = SJA1105P_e_idiv_BY_1;
+
+				miixClockControlRegister.clksrc = SJA1105P_e_clksrc_PLL0;
+			}
+			/* default values of idivCControlRegister are correct for SJA1105P_e_speed_10_MBPS */
+
+			ret += SJA1105P_setIdivCControlRegister(&idivCControlRegister, port, switchId);
 			ret += SJA1105P_setMiixClockControlRegister(&miixClockControlRegister, port, SJA1105P_e_miixInternalClk_RGMII_TX_CLK, switchId);
 			break;
 		}
@@ -394,8 +471,8 @@ static uint8_t configPort(uint8_t port, uint8_t switchId,  SJA1105P_speed_t spee
 					}
 					ret += SJA1105P_setIdivCControlRegister(&idivCControlRegister, port, switchId);
 				}
-				ret += SJA1105P_setMiixClockControlRegister(&miixClockControlRegister, port, SJA1105P_e_miixInternalClk_MII_TX_CLK, switchId);	
-				ret += SJA1105P_setMiixClockControlRegister(&miixClockControlRegister, port, SJA1105P_e_miixInternalClk_MII_RX_CLK, switchId);	
+				ret += SJA1105P_setMiixClockControlRegister(&miixClockControlRegister, port, SJA1105P_e_miixInternalClk_MII_TX_CLK, switchId);
+				ret += SJA1105P_setMiixClockControlRegister(&miixClockControlRegister, port, SJA1105P_e_miixInternalClk_MII_RX_CLK, switchId);
 				ret += initSgmii(switchId, 0, speed, phyMode);  /* Init SGMII without auto-negotiation */
 			}
 			break;

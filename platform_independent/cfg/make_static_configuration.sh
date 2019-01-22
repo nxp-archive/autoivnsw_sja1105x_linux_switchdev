@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 FIRMWARENAME=sja1105p_cfg
 
 mkdir -p output

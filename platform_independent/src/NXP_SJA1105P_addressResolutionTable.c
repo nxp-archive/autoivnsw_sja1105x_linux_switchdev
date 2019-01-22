@@ -47,7 +47,7 @@
 #define N_ARL_ENTRIES 1024U
 
 #define MAC_ADDRESS_BYTES 6U
-#define MAC_ADDRESS_MASK  (0xFFFFFFFFFFUL)
+#define MAC_ADDRESS_MASK  (0xFFFFFFFFFFFFUL)
 
 #define BYTE 8U
 
@@ -85,8 +85,8 @@ extern uint8_t SJA1105P_addArlTableEntry(SJA1105P_addressResolutionTableEntry_t 
 	uint8_t firstDestSwitchId = SJA1105P_N_SWITCHES;
 	uint8_t lastDestSwitchId = 0;
 
-	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry;
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	/* find free entry in the first switch and add entry there */
 	convertToPhysicalEntry(p_addressResolutionTableEntry, &physicalArlTableEntry, SJA1105P_MASTER_SWITCH);
@@ -143,7 +143,7 @@ extern uint8_t SJA1105P_readArlTableEntryByAddress(SJA1105P_addressResolutionTab
 	uint8_t ret ;
 
 	ret = findEntryIndex(p_addressResolutionTableEntry);
-	if ((ret == 0U) && (p_addressResolutionTableEntry->index <= N_ARL_ENTRIES))
+	if ((ret == 0U) && (p_addressResolutionTableEntry->index < N_ARL_ENTRIES))
 	{  /* an entry was found */
 		ret = SJA1105P_readArlTableEntryByIndex(p_addressResolutionTableEntry);
 	}
@@ -168,7 +168,7 @@ extern uint8_t SJA1105P_readArlTableEntryByIndex(SJA1105P_addressResolutionTable
 	uint16_t logicalDestPorts;
 
 	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	physicalArlTableEntry.index = p_addressResolutionTableEntry->index;
 
@@ -202,7 +202,7 @@ extern uint8_t SJA1105P_removeArlTableEntryByAddress(SJA1105P_addressResolutionT
 	uint8_t ret;
 
 	ret = findEntryIndex(p_addressResolutionTableEntry);
-	if ((ret == 0U) && (p_addressResolutionTableEntry->index <= N_ARL_ENTRIES))
+	if ((ret == 0U) && (p_addressResolutionTableEntry->index < N_ARL_ENTRIES))
 	{  /* an entry was found */
 		ret = SJA1105P_removeArlTableEntryByIndex(p_addressResolutionTableEntry);
 	}
@@ -223,7 +223,7 @@ extern uint8_t SJA1105P_removeArlTableEntryByIndex(const SJA1105P_addressResolut
 	uint8_t switchId;
 
 	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	physicalArlTableEntry.index = kp_addressResolutionTableEntry->index;
 
@@ -248,7 +248,7 @@ extern uint8_t SJA1105P_enableArlMirroring(uint16_t arlEntryIndex, uint8_t enabl
 	uint8_t switchId;
 
 	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	physicalArlTableEntry.index = arlEntryIndex;
 
@@ -277,7 +277,7 @@ extern uint8_t SJA1105P_enableArlRetagging(uint16_t arlEntryIndex, uint16_t reta
 	uint8_t switchId;
 
 	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	physicalArlTableEntry.index = arlEntryIndex;
 
@@ -305,8 +305,8 @@ static uint8_t findEntryIndex(SJA1105P_addressResolutionTableEntry_t *p_addressR
 {
 	uint8_t ret;
 
-	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry;
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	convertToPhysicalEntry(p_addressResolutionTableEntry, &physicalArlTableEntry, SJA1105P_MASTER_SWITCH);
 	ret = executeTcamCommand(SJA1105P_e_hostCmd_SEARCH, &physicalArlTableEntry, &physicalArlTableControlStatus, SJA1105P_MASTER_SWITCH);
@@ -332,8 +332,8 @@ static uint8_t findFreeEntry(uint16_t *p_freeEntryIndex, uint8_t switchId)
 {
 	uint8_t ret = 0;
 	uint16_t entryIndex;
-	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry;
-	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus;
+	SJA1105P_l2ArtLockedEntryArgument_t physicalArlTableEntry = {0};
+	SJA1105P_l2AddressLookupTableControlGetArgument_t physicalArlTableControlStatus = {0};
 
 	*p_freeEntryIndex = N_ARL_ENTRIES;
 	for (entryIndex = 0; entryIndex < N_ARL_ENTRIES; entryIndex++)
@@ -368,7 +368,7 @@ static uint8_t executeTcamCommand(SJA1105P_hostCmd_t hostCmd, SJA1105P_l2ArtLock
 {
 	uint8_t ret;
 
-	SJA1105P_l2AddressLookupTableControlSetArgument_t controlSetArg;
+	SJA1105P_l2AddressLookupTableControlSetArgument_t controlSetArg = {0};
 
 	controlSetArg.valid     = 1;  /* Required for any read/write operation */
 	controlSetArg.lockeds   = 1;  /* Only permanent entries are handled here */
@@ -435,7 +435,7 @@ static void convertToPhysicalEntry(const SJA1105P_addressResolutionTableEntry_t 
 	if (kp_arlTableEntry->p_extension == NULL)
 	{  /* No extended configuration, use default values */
 		p_physicalArlTableEntry->innerOuterVlan = 1;  /* outer VLAN */
-		p_physicalArlTableEntry->mask           = 1;  /* exact match */
+		p_physicalArlTableEntry->mask           = 0x1FFFFFFFFFFFFFFF;  /* exact match */
 		p_physicalArlTableEntry->retag          = 0;  /* no retagging */
 		p_physicalArlTableEntry->mirror         = 0;  /* no mirroring */
 		p_physicalArlTableEntry->mirroredVlan   = 0;  /* not applicable */

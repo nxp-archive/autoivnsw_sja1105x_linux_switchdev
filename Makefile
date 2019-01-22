@@ -1,3 +1,5 @@
+-include kernel_dir.local
+
 MYPLATFORM=bbmini
 #NUMBER_SWITCHES
 
@@ -21,7 +23,7 @@ ifeq ($(MYPLATFORM), imx)
 	MYTOOLCHAIN=arm-linux-gnueabi-
 	MYARCHITECTURE=arm
 	MYCOMPILER=arm-linux-gnueabi-gcc-4.7
-	KERNELDIR ?= /home/marco/Documents/linux_automotive/linux_avb
+	KERNELDIR ?= $(KERNELDIR_IMX)
 else ifeq ($(MYPLATFORM), evb)
 	#evb
 	NUMBER_SWITCHES ?= 2
@@ -34,7 +36,7 @@ else ifeq ($(MYPLATFORM), evb)
 	MYTOOLCHAIN=aarch64-linux-gnu-
 	MYARCHITECTURE=arm64
 	MYCOMPILER=aarch64-linux-gnu-gcc
-	KERNELDIR ?= ~/work/linux
+	KERNELDIR ?= $(KERNELDIR_EVB)
 else ifeq ($(MYPLATFORM), bbmini)
 	#bbmini
 	NUMBER_SWITCHES ?= 3
@@ -47,9 +49,9 @@ else ifeq ($(MYPLATFORM), bbmini)
 	MYTOOLCHAIN=aarch64-linux-gnu-
 	MYARCHITECTURE=arm64
 	MYCOMPILER=aarch64-linux-gnu-gcc
-	KERNELDIR ?= /home/marco/Documents/yocto_auto_linux_bsp15.0/build_s32v234bbmini_release/tmp/work/s32v234bbmini-fsl-linux/linux-s32v2xx/4.1.26-r0/git
+	KERNELDIR ?= $(KERNELDIR_BBX)
 else
-        $(error Unsupported platform specified!)
+	$(error Unsupported platform specified!)
 endif
 
 all:
@@ -59,7 +61,7 @@ clean:
 	$(MAKE) ARCH=$(MYARCHITECTURE) CROSS_COMPILE=$(MYTOOLCHAIN) CC=$(MYCOMPILER) -C $(KERNELDIR) M=`pwd` $@
 
 
-obj-m +=  sja1105pqrs.o
+obj-m += sja1105pqrs.o
 
 #include and src paths
 APP_SRC_PATH   = app/src
@@ -76,7 +78,7 @@ SWDEV_INC_PATH = $(src)/switchdev/inc
 PLATFORM_DEPENDENT  = -D SJA1105P_N_SWITCHES=$(NUMBER_SWITCHES)
 PLATFORM_DEPENDENT += -D SPI_FREQUENCY=$(SPI_FREQ) -D SPI_SWITCH_WORDS=$(SPI_SWAP) -D SPI_BITS_PER_WORD=$(SPI_BPW) -D SPI_BITS_PER_WORD_MSG=$(SPI_BPW_MSG) -D SPI_CFG_BLOCKS=$(NR_CFG_BLOCKS)
 
-EXTRA_CFLAGS+=  -I$(KERNELDIR)/include/linux -I$(INDEP_INC_PATH) -I$(INDEP_LL_INC_PATH) -I$(INT_INC_PATH) -I$(APP_INC_PATH) -I$(SWDEV_INC_PATH) -I$(src) $(PLATFORM_DEPENDENT)
+EXTRA_CFLAGS+= -I$(KERNELDIR)/include/linux -I$(INDEP_INC_PATH) -I$(INDEP_LL_INC_PATH) -I$(INT_INC_PATH) -I$(APP_INC_PATH) -I$(SWDEV_INC_PATH) -I$(src) $(PLATFORM_DEPENDENT)
 
 #Top level
 sja1105pqrs-y := sja1105p_init.o

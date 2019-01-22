@@ -31,6 +31,11 @@
 #define _SJA1105P_SPI_H__
 
 #include "NXP_SJA1105P_auxiliaryConfigurationUnit.h"
+#include "sja1105p_cfg_file.h"
+
+extern int verbosity;
+
+typedef enum {PM_DO_RESUME, PM_DO_SUSPEND} pm_request_t;
 
 /*
  * structure definitions
@@ -39,7 +44,10 @@
 struct port_desc {
 	bool is_host;                 /**< whether port is connected to Host - Switch management */
 	bool phy_not_mac;             /**< if false connected to real phy true if Null Phy direct connection */
-	int logical_port_num;         /**< The logical port number of the physical port */
+	int logical_port_num;         /**< The logical port number of the physical port, as indicated in the device tree */
+	int rx_delay;                 /**< rx delay line configuration */
+	int tx_delay;                 /**< tx delay line configuration */
+	struct net_device *netdev;    /**< netdev associated with this port, in case swdev is used */
 };
 
 struct sja1105p_platform_data {
@@ -56,9 +64,10 @@ struct sja1105p_context_data {
 	char fw_name[64];               /**< Constructed filename depends on number of SJA1105
 				     chips in configuration and their revision MRA1 or MRA2 */
 	int sja1105p_chip_revision;
-	struct sja1105p_platform_data *pdata;
+	struct sja1105p_platform_data pdata;
 
 	struct list_head cfg_block_list;        /**< Block list resulting from call to configuration file parsing function */
+	struct completion spi_tf_done;          /**< Indicate that a SPI transfer is completed */
 };
 
 

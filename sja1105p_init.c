@@ -34,7 +34,6 @@
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
-#include <linux/spi/spi.h>
 #include <linux/platform_device.h>
 #include <linux/delay.h>
 #include <linux/of.h>
@@ -47,19 +46,13 @@
 #include "NXP_SJA1105P_spi.h"
 #include "NXP_SJA1105P_portConfig.h"
 #include "NXP_SJA1105P_cbs.h"
+#include "NXP_SJA1105P_resetGenerationUnit.h"
 
 #include "sja1105p_spi_linux.h"
-#include "sja1105p_cfg_file.h"
 #include "sja1105p_general_status.h"
 #include "sja1105p_debugfs.h"
 #include "sja1105p_switchdev.h"
 #include "sja1105p_init.h"
-
-/*
- * Local constants and macros
- *
- */
-#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
 /*
  * Static variables
@@ -75,7 +68,7 @@ MODULE_PARM_DESC(ifname, "Network interface name for SJA1105P Host port: default
 
 int verbosity =  0;
 module_param(verbosity, int, S_IRUGO);
-MODULE_PARM_DESC(verbosity, "Trace level'");
+MODULE_PARM_DESC(verbosity, "Trace level");
 
 static int enable_switchdev = 1;
 module_param(enable_switchdev, int, S_IRUGO);
@@ -133,10 +126,21 @@ static int sja1105p_check_device_id(struct spi_device *spi, unsigned int device_
 		}
 	}
 
-	if (val == -1)
+	if (val == -1 && dump_id)
 		dev_err(&spi->dev, "SJA1105P invalid Device Id, is %08x\n", devid);
 
 	return val;
+}
+
+static int sja1105p_wait_for_reset(struct spi_device *spi, int revision, int device_select)
+{
+	int count = 0;
+	while (count++ < 30) {
+		if (revision == sja1105p_check_device_id(spi, device_select, 0) ) {
+			return 0;
+		}
+	}
+	return -EIO;
 }
 
 static bool sja1105p_check_device_status(struct spi_device *spi)
@@ -292,8 +296,6 @@ static int sja1105p_configuration_load(const struct firmware *config_file, struc
 	struct sja1105p_context_data *data = spi_get_drvdata(spi);
 	int nb_words;
 	u32 * cfg_data;
-	int remaining_words;
-	u32 dev_addr;
 	u32 val;
 	bool swap_required;
 	int i;
@@ -355,26 +357,8 @@ static int sja1105p_configuration_load(const struct firmware *config_file, struc
 
 	if (verbosity > 1) dev_info(&spi->dev, "swap_required %d nb_words %d dev_addr %08x\n", swap_required, nb_words, (u32)SJA1105P_CONFIG_START_ADDRESS);
 
-	remaining_words = nb_words;
-	dev_addr = SJA1105P_CONFIG_START_ADDRESS;
-
-	i = 0;
-	while (remaining_words > 0) {
-		//TODO: should use SJA1105P_CONFIG_WORDS_PER_BLOCK many words per transfer
-		int block_size_words = MIN(SPI_CFG_BLOCKS, remaining_words);
-
-		if (verbosity > 2) dev_info(&spi->dev, "block_size_words %d remaining_words %d\n", block_size_words, remaining_words);
-
-		if (sja1105p_cfg_block_write(spi, dev_addr, cfg_data, block_size_words) < 0)
-			goto err_cfg;
-
-		if (verbosity > 1) dev_info(&spi->dev, "Loaded block %d @%08x\n", i, dev_addr);
-
-		dev_addr += block_size_words;
-		cfg_data += block_size_words;
-		remaining_words -= block_size_words;
-		i++;
-	}
+	if (sja1105p_cfg_block_write(spi, SJA1105P_CONFIG_START_ADDRESS, cfg_data, nb_words) < 0)
+		goto err_cfg;
 
 	if (!sja1105p_post_cfg_load_check(spi, data))  {
 		dev_err(&spi->dev, "SJA1105P configuration failed\n");
@@ -407,10 +391,76 @@ err_cfg:
 	return -EINVAL;
 }
 
+#define CLOCK_DELAY_UNCONFIGURED -1 /**< delay line not configured */
+#define CLOCK_DELAY_DISABLED 0      /**< delay line powered down */
+static int sja1105p_clockDelay_cfg_port(struct sja1105p_context_data *switch_ctx, int portnum, u32 delay, SJA1105P_direction_t direction)
+{
+	int ret;
+	SJA1105P_portStatusMiixArgument_t portStatus = {0};
+
+	ret = SJA1105P_getPortStatusMiix(&portStatus, portnum, switch_ctx->device_select);
+	if (ret)
+		return ret;
+
+	/* sanity check */
+	if (portStatus.xmiiMode != SJA1105P_e_xmiiMode_RGMII)
+		dev_err(&switch_ctx->spi_dev->dev, "Port %d: Clock delay configured in DTS, even though not a RGMII interface!\n", portnum);
+
+	if (delay == CLOCK_DELAY_DISABLED) {
+		/* disable delay line */
+		if (verbosity) dev_info(&switch_ctx->spi_dev->dev, "Port %d: Disabling %s-delay line\n", portnum, (direction==SJA1105P_e_direction_RX)?"rx":"tx");
+
+		ret = SJA1105P_setCfgPad(true, true, portnum, switch_ctx->device_select, direction);
+	} else if (delay >= MINIMUM_CLK_DELAY && delay <= MINIMUM_CLK_DELAY + 0x1F * STEPSIZE_CLK_DELAY) {
+		if (verbosity) dev_info(&switch_ctx->spi_dev->dev, "Port %d: Configuring %s-delay to %d\n", portnum, (direction==SJA1105P_e_direction_RX)?"rx":"tx", delay);
+
+		ret = SJA1105P_setupClockDelay(delay, portnum, switch_ctx->device_select, direction);
+	} else {
+		/* invalid value */
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+
+static int sja1105p_clockDelay_cfg(void)
+{
+	int i, switchId, delay, err;
+	struct sja1105p_context_data *switch_ctx;
+
+	for (switchId = 0; switchId < SJA1105P_N_SWITCHES; switchId++)
+	{
+		switch_ctx = sja1105p_context_arr[switchId];
+		for (i = 0; i < SJA1105P_PORT_NB; i++) {
+			delay = switch_ctx->pdata.ports[i].rx_delay;
+			if (delay != CLOCK_DELAY_UNCONFIGURED) {
+				err = sja1105p_clockDelay_cfg_port(switch_ctx, i, delay, SJA1105P_e_direction_RX);
+				if (err)
+					goto err_delay_rx;
+			}
+
+			delay = switch_ctx->pdata.ports[i].tx_delay;
+			if (delay != CLOCK_DELAY_UNCONFIGURED) {
+				err = sja1105p_clockDelay_cfg_port(switch_ctx, i, delay, SJA1105P_e_direction_TX);
+				if (err)
+					goto err_delay_tx;
+			}
+		}
+	}
+
+	return 0;
+
+err_delay_rx:
+	dev_err(&switch_ctx->spi_dev->dev, "Port %d: Error configuring rx clock delay\n", i);
+	return err;
+
+err_delay_tx:
+	dev_err(&switch_ctx->spi_dev->dev, "Port %d: Error configuring tx clock delay\n", i);
+	return err;
+}
 
 static int sja1105p_init_dt(struct sja1105p_context_data *switch_ctx)
 {
-	struct sja1105p_platform_data *pdata;
 	struct device_node *np = switch_ctx->of_node;
 	u32 val;
 	struct device_node * port_node;
@@ -422,10 +472,6 @@ static int sja1105p_init_dt(struct sja1105p_context_data *switch_ctx)
 		return 0;
 	}
 
-	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
-	if (!pdata)
-		return -ENOMEM;
-
 	if (!of_property_read_string(np, "firmware_name", &firmware_name)) {
 		if (verbosity > 0) dev_info(&switch_ctx->spi_dev->dev, "Firmware name \"%s\" found\n", firmware_name);
 		snprintf(switch_ctx->fw_name, 63, firmware_name);
@@ -434,7 +480,7 @@ static int sja1105p_init_dt(struct sja1105p_context_data *switch_ctx)
 		switch_ctx->fw_name[0] = '\0';
 	}
 
-	pdata->host_port_id = SJA1105P_PORT_NB;
+	switch_ctx->pdata.host_port_id = SJA1105P_PORT_NB;
 	for (i = 0; i < SJA1105P_PORT_NB; i++) {
 		char str_to_find[32];
 		snprintf(str_to_find, 32, "port-%d", i);
@@ -447,50 +493,57 @@ static int sja1105p_init_dt(struct sja1105p_context_data *switch_ctx)
 
 		if (!of_property_read_u32(port_node, "logical-port-num", &val)) {
 			if (verbosity > 0) dev_info(&switch_ctx->spi_dev->dev, "port-%d logical-port-num=%d\n", i, val);
-			pdata->ports[i].logical_port_num = val;
+			switch_ctx->pdata.ports[i].logical_port_num = val;
 
 		} else {
-			pdata->ports[i].logical_port_num =  -1; /*  invalid */
+			switch_ctx->pdata.ports[i].logical_port_num =  -1; /*  invalid */
 		}
 
-		pdata->ports[i].is_host = false;
+		switch_ctx->pdata.ports[i].is_host = false;
 		if (!of_property_read_u32(port_node, "is-host", &val)) {
 			if (verbosity > 0) dev_info(&switch_ctx->spi_dev->dev, "port-%d is-host=%d\n", i, val);
 			if (val != 0) {
-				pdata->ports[i].is_host = true;
-				if (pdata->host_port_id == SJA1105P_PORT_NB)
-					pdata->host_port_id = i;
+				switch_ctx->pdata.ports[i].is_host = true;
+				if (switch_ctx->pdata.host_port_id == SJA1105P_PORT_NB)
+					switch_ctx->pdata.host_port_id = i;
 				else {
-					dev_err(&switch_ctx->spi_dev->dev, "Only one port can be Host Port (management)" "port-%d current is port-%d\n", i, pdata->host_port_id);
+					dev_err(&switch_ctx->spi_dev->dev, "Only one port can be Host Port (management)" "port-%d current is port-%d\n", i, switch_ctx->pdata.host_port_id);
 					goto err_dt;
 				}
 			}
 		}
 
 		if (!of_property_read_u32(port_node, "null-phy", &val))
-			pdata->ports[i].phy_not_mac = (val != 0);
+			switch_ctx->pdata.ports[i].phy_not_mac = (val != 0);
 
-		if (verbosity > 1) dev_info(&switch_ctx->spi_dev->dev, "port-%d null-phy=%d (phy_not_mac=%d)\n", i, val, pdata->ports[i].phy_not_mac);
+		if (verbosity > 1) dev_info(&switch_ctx->spi_dev->dev, "port-%d null-phy=%d (phy_not_mac=%d)\n", i, val, switch_ctx->pdata.ports[i].phy_not_mac);
+
+		/* Read clock delay config from device tree */
+		if (!of_property_read_u32(port_node, "rx-delay", &val))
+			switch_ctx->pdata.ports[i].rx_delay = val;
+		else
+			switch_ctx->pdata.ports[i].rx_delay = CLOCK_DELAY_UNCONFIGURED;
+
+		if (!of_property_read_u32(port_node, "tx-delay", &val))
+			switch_ctx->pdata.ports[i].tx_delay = val;
+		else
+			switch_ctx->pdata.ports[i].tx_delay = CLOCK_DELAY_UNCONFIGURED;
 
 		of_node_put(port_node);
 	} /* for */
 
-	switch_ctx->pdata = pdata;
 	return 0;
 
 err_dt:
-	if (pdata) kzfree(pdata);
-	switch_ctx->pdata = NULL;
 	return -EINVAL;
 }
 
 void sja1105p_port_mapping(struct sja1105p_context_data *switch_ctx)
 {
 	int pport;
-	struct sja1105p_platform_data *pdata = switch_ctx->pdata;
 
 	for (pport = 0; pport < SJA1105P_PORT_NB; pport++) {
-		int lport = pdata->ports[pport].logical_port_num;
+		int lport = switch_ctx->pdata.ports[pport].logical_port_num;
 		if (lport == -1) {
 			/* if value is is invalid, ie no DT node was found, fall back to auto mapping */
 			do_auto_mapping = true;
@@ -510,6 +563,37 @@ void sja1105p_port_mapping(struct sja1105p_context_data *switch_ctx)
 		portMapping[lport].physicalPort = pport;
 		portMapping[lport].switchId = switch_ctx->device_select;
 	}
+}
+
+/* Retrieve port description for a given logical port number */
+static struct port_desc *get_portdesc_from_lport(int lport)
+{
+	SJA1105P_port_t pport_info = {0};
+
+	if (SJA1105P_getPhysicalPort(lport, &pport_info))
+		return NULL;
+
+	return &sja1105p_context_arr[pport_info.switchId]->pdata.ports[pport_info.physicalPort];
+}
+
+/**
+ * Iterate over port descriptors of each switch, call function 'f' on it.
+ * Pass the descriptors logical port num as well as a const argument to 'f'
+ */
+int foreach_descriptor(struct device *dev, int (*f)(struct port_desc*, int, int), int param)
+{
+	int lport, ret = 0;
+	for (lport = 0; lport < SJA1105P_N_LOGICAL_PORTS; lport++) {
+		struct port_desc *pdesc = get_portdesc_from_lport(lport);
+		if (!pdesc) {
+			dev_err(dev, "Cannot get port descriptor for lport %d!", lport);
+			continue;
+		}
+
+		ret += f(pdesc, lport, param);
+	}
+
+	return ret;
 }
 
 int sja1105p_probe_final(struct sja1105p_context_data *switch_ctx)
@@ -544,13 +628,18 @@ int sja1105p_probe_final(struct sja1105p_context_data *switch_ctx)
 		return err;
 	}
 
+	/* perform clock delay configuration */
+	err = sja1105p_clockDelay_cfg();
+	if (err)
+		return err;
+
 	read_lock(&rwlock);
 	dev_info(&switch_ctx->spi_dev->dev, "%d switch%s initialized successfully!\n", switches_active, (switches_active > 1)?"es":"");
 	read_unlock(&rwlock);
 
 	/* only init switchdev, if all switches were detected and initialized correctly */
 	if (enable_switchdev)
-		nxp_swdev_init(sja1105p_context_arr);
+		foreach_descriptor(&switch_ctx->spi_dev->dev, register_port, 0);
 
 	return 0;
 }
@@ -612,16 +701,19 @@ static int sja1105p_probe(struct spi_device *spi)
 		return -EINVAL;
 	}
 
+	spi_set_drvdata(spi, switch_ctx);
+
+	/* starting from now, the HAL can issue SPI r/w access to the device */
+	init_completion(&switch_ctx->spi_tf_done);
+	read_lock(&rwlock);
+	register_spi_callback(spi, switches_active);
+	read_unlock(&rwlock);
+
 	err = sja1105p_init_dt(switch_ctx);
 	if (err) {
 		dev_err(&spi->dev, "SJA1105P error initializing device table\n");
 		return err;
 	}
-
-	/* starting from now, the HAL can issue SPI r/w access to the device */
-	read_lock(&rwlock);
-	register_spi_callback(spi, switch_ctx->device_select, switches_active);
-	read_unlock(&rwlock);
 
 	switch_ctx->sja1105p_chip_revision = sja1105p_check_device_id(spi, switch_ctx->device_select, 1);
 	if (switch_ctx->sja1105p_chip_revision < 0 ) {
@@ -632,13 +724,19 @@ static int sja1105p_probe(struct spi_device *spi)
 		return -ENODEV;
 	}
 
+	SJA1105P_setResetCtrl(SJA1105P_RESET_CTRL_COLDRESET, switch_ctx->device_select);
+	err = sja1105p_wait_for_reset(spi, switch_ctx->sja1105p_chip_revision, switch_ctx->device_select);
+	if (err != 0)
+	{
+		dev_err(&spi->dev, "SJA1105P reset failed\n");
+		return err;
+	}
+
 	/* If Firmware name was not found in DT, compile a generic name */
 	if (strcmp (switch_ctx->fw_name, "") == 0) {
 		snprintf(switch_ctx->fw_name, 63, "%s_%d-%d_cfg%s.bin",
 		product_names[fw_idx], switch_ctx->device_select+1, SJA1105P_N_SWITCHES, fw_name_suffix[switch_ctx->sja1105p_chip_revision]);
 	}
-
-	spi_set_drvdata(spi, switch_ctx);
 
 	/* First of all need to check for SJA1105P init read */
 	if (verbosity > 0) dev_info(&spi->dev, "SJA1105P switch preparing to load %s\n", switch_ctx->fw_name);
@@ -679,6 +777,13 @@ static int sja1105p_probe(struct spi_device *spi)
 
 static int sja1105p_remove(struct spi_device *spi)
 {
+	/**
+	 * Unregister ports of switchdev subsystem as soon as first spi device
+	 * is removed, since it depends on a working underlying spi device.
+	 */
+	if (switches_active == SJA1105P_N_SWITCHES && enable_switchdev)
+		foreach_descriptor(&spi->dev, unregister_port, 0);
+
 	/* Keep track of the total number of switches that were probed */
 	write_lock(&rwlock);
 	switches_active--;
@@ -693,33 +798,45 @@ static int sja1105p_remove(struct spi_device *spi)
 	return 0;
 }
 
+static int __maybe_unused sja1105p_do_pm(struct device *dev, pm_request_t req)
+{
+	int pport, ret = 0;
+	struct spi_device *spi = to_spi_device(dev);
+	struct sja1105p_context_data *sw_ctx = spi_get_drvdata(spi);
 
+	for (pport = 0; pport < SJA1105P_PORT_NB; pport++) {
+		struct port_desc *pdesc = &sw_ctx->pdata.ports[pport];
+
+		ret += do_pm_request(pdesc, pport, req);
+	}
+
+	return ret;
+}
+
+static int __maybe_unused sja1105p_suspend(struct device *dev)
+{
+	return sja1105p_do_pm(dev, PM_DO_SUSPEND);
+}
+
+static int __maybe_unused sja1105p_resume(struct device *dev)
+{
+	return sja1105p_do_pm(dev, PM_DO_RESUME);
+}
+
+static SIMPLE_DEV_PM_OPS(sja1105p_pm_ops, sja1105p_suspend, sja1105p_resume);
 
 static struct spi_driver sja1105p_driver = {
 	.driver = {
 		.name = "sja1105pqrs",
 		.owner = THIS_MODULE,
 		.of_match_table = sja1105p_dt_ids,
-		.pm = NULL,
+		.pm = &sja1105p_pm_ops,
 	},
 	.probe = sja1105p_probe,
 	.remove = sja1105p_remove,
 };
 
-static int __init sja1105p_driver_init(void)
-{
-	return spi_register_driver( &sja1105p_driver );
-}
-module_init(sja1105p_driver_init);
-
-static void __exit sja1105p_driver_exit(void)
-{
-	if (enable_switchdev)
-		nxp_swdev_exit();
-
-	spi_unregister_driver( &sja1105p_driver );
-}
-module_exit(sja1105p_driver_exit);
+module_spi_driver(sja1105p_driver);
 
 MODULE_DESCRIPTION("SJA1105PQRS SPI driver");
 MODULE_LICENSE("GPL");

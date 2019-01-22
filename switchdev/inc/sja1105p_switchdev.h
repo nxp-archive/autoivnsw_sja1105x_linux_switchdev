@@ -20,10 +20,9 @@
 #include <linux/spi/spi.h>
 
 #include "sja1105p_cfg_file.h"
-#include "sja1105p_init.h"
 
-int nxp_swdev_init(struct sja1105p_context_data **ctx_nodes);
-void nxp_swdev_exit(void);
-
+int register_port(struct port_desc*, int, int);
+int unregister_port(struct port_desc*, int, int);
+int do_pm_request(struct port_desc *, int, int);
 
 #endif /* _NXP_SJA1105P_H */

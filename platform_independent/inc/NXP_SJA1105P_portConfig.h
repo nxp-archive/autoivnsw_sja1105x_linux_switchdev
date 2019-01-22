@@ -45,10 +45,21 @@
 #include "NXP_SJA1105P_sgmii.h"
 
 /******************************************************************************
+* EXPORTED DEFINES
+*****************************************************************************/
+
+#define CLOCK_DELAY_81DEG 810U  /**< 81.0 degrees */
+#define MINIMUM_CLK_DELAY 738U  /**< 73.8 degrees */
+#define STEPSIZE_CLK_DELAY  9U  /**<  0.9 degrees */
+
+/******************************************************************************
 * EXPORTED FUNCTIONS
 *****************************************************************************/
 
 extern uint8_t SJA1105P_autoConfigPorts(void);
+extern uint8_t SJA1105P_setCfgPad(bool pd, bool bypass, uint8_t port, uint8_t switchId, SJA1105P_direction_t direction);
+extern uint8_t SJA1105P_setSpeed(uint8_t port, uint8_t device, SJA1105P_speed_t speed);
+extern uint8_t SJA1105P_reconfigPort(uint8_t port, uint8_t switchId, uint8_t new_speed);
 extern uint8_t SJA1105P_setupClockDelay(uint16_t delay, uint8_t port, uint8_t switchId, SJA1105P_direction_t direction);
 extern uint8_t SJA1105P_resetClockDelay(uint8_t port, uint8_t switchId, SJA1105P_direction_t direction);
 extern uint8_t initSgmii(uint8_t switchId, uint8_t autoNegotiation, SJA1105P_speed_t speed, uint8_t phyMode);

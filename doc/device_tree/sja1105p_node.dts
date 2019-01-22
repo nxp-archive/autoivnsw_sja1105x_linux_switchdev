@@ -14,6 +14,8 @@ spi@40057000 {
 			null-phy = <0x1>;
 			phy-ref = < 0 >;
 			logical-port-num = < 0 >;
+			rx-delay = < 810 >;
+			tx-delay = < 810 >;
 		};
 
 		port-1 {

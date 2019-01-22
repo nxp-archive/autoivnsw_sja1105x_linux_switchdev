@@ -27,8 +27,6 @@
 * \brief Utilities to handle contents of SJA1105P configuration binary file
 *
 *****************************************************************************/
-#include <linux/spi/spi.h>
-#include <linux/platform_device.h>
 
 #include "sja1105p_cfg_file.h"
 
