@@ -6,7 +6,7 @@ v0.1: (Feb 2018)
 
 v0.2: (Dez 2018)
 - Add support for PHY power management
-- Add support for multiple [Linux versions](#Supported-Linux-versions)
+- Add support for multiple [Linux versions](#supported-linux-versions)
 - Fix SPI communication for S32V234 platform
 - Add RGMII clock delay configration option in the device tree
 - Correctly handle resetting of RGMII delay lines
@@ -18,14 +18,14 @@ v0.2: (Dez 2018)
 ---
 
 ## Table of Contents
-1. [Overview](#Overview)
-2. [SJA1105PQRS loading](#SJA1105PQRS-loading)
-3. [Switchdev](#Switchdev)
-4. [Power Management](#Power-Management)
-5. [DTS Information](#DTS-Information)
-6. [Compile time configuration](#Compile-time-configuration)
-7. [Supported Linux versions](#Supported-Linux-versions)
-8. [Limitations and known issues](#Limitations-and-known-issues)
+1. [Overview](#overview)
+2. [SJA1105PQRS loading](#sja1105pqrs-loading)
+3. [Switchdev](#switchdev)
+4. [Power Management](#power-management)
+5. [DTS Information](#dts-information)
+6. [Compile time configuration](#compile-time-configuration)
+7. [Supported Linux versions](#supported-linux-versions)
+8. [Limitations and known issues](#limitations-and-known-issues)
 
 ---
 
@@ -38,7 +38,7 @@ The **SJA1105PQRS** Linux Switch Driver contains several components:
 ## SJA1105PQRS loading
 - Load the kernel module: eg. `insmod <MODULE_NAME>`
 - Available module parameters are:
-	- `max_hz`: SPI bus speed may be limited for the remote **SJA1105PQRS** application board, 25MHz is the maximum
+	- `max_hz`: SPI bus speed may be limited for the remote **SJA1105PQRS** application board, 25 MHz is the maximum
 	- `ifname`: Network interface name for **SJA1105PQRS** Host port: default to `eth0`
 	- `verbosity`: Trace level
 	- `enable_switchdev`: Enable the *switchdev* driver component
@@ -85,7 +85,7 @@ Please refer to `doc/README`
 Some platform dependent parameters need to be configured at compile time. These parameters can be found in the Makefile:
 - `NUMBER_SWITCHES`: The number of switches attached to the system
 - `SPI_FREQ`: Frequency at which the SPI Bus operates
-- `SPI_SWAP`: If given a nonzero value, the upper 16bit of a 32bit word are swapped with the lower 16bit
+- `SPI_SWAP`: If given a nonzero value, the upper 16-bit of a 32-bit word are swapped with the lower 16-bit
 - `SPI_BPW`: *bits_per_word* setting of the SPI Controller that is used
 - `SPI_BPW_MSG`: *bits_per_word* setting for an individual message, in general this should be equal to SPI_BPW
 - `NR_CFG_BLOCKS`: number of words that are sent at once in a single SPI transmission
@@ -96,7 +96,7 @@ However, it should work for every Linux version that is **v4.0** or newer.
 
 ## Limitations and known issues
 - Incompatibility with **spi_imx** driver.  
-The **chipselect** (**CS**) pin is de-asserted in between 32bit words when using *bits_per_word* setting of 32. The switch aborts transaction as soon as **CS** is de-asserted, which makes communication impossible.
+The **chipselect** (**CS**) pin is de-asserted in between 32-bit words when using *bits_per_word* setting of 32. The switch aborts transaction as soon as **CS** is de-asserted, which makes communication impossible.
 The `spi_transfer.cs_change` option is ignored by **spi_imx** driver. As a temporary workaround, a low level patch (in `core/spi.c`) can be used that allows arbitrarily large *bits_per_word* settings so there will be no de-assertion in between words.
 This is a known problem, refer for example to:
 	- https://community.nxp.com/thread/387852
