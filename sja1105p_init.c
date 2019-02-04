@@ -521,13 +521,19 @@ static int sja1105p_init_dt(struct sja1105p_context_data *switch_ctx)
 		/* Read clock delay config from device tree */
 		if (!of_property_read_u32(port_node, "rx-delay", &val))
 			switch_ctx->pdata.ports[i].rx_delay = val;
-		else
+		else {
 			switch_ctx->pdata.ports[i].rx_delay = CLOCK_DELAY_UNCONFIGURED;
+			if (switch_ctx->pdata.ports[i].is_host)
+				dev_warn(&switch_ctx->spi_dev->dev, "No rx-delay declared in dtb for host port\n");
+		}
 
 		if (!of_property_read_u32(port_node, "tx-delay", &val))
 			switch_ctx->pdata.ports[i].tx_delay = val;
-		else
+		else {
 			switch_ctx->pdata.ports[i].tx_delay = CLOCK_DELAY_UNCONFIGURED;
+			if (switch_ctx->pdata.ports[i].is_host)
+				dev_warn(&switch_ctx->spi_dev->dev, "No tx-delay declared in dtb for host port\n");
+		}
 
 		of_node_put(port_node);
 	} /* for */
