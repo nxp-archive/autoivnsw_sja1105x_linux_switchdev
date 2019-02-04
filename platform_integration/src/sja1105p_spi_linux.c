@@ -110,9 +110,7 @@ u32 sja1105p_read_reg32(struct spi_device *spi, u32 reg_addr)
 	struct spi_message m;
 	struct spi_transfer t;
 	struct sja1105p_context_data *sw_ctx = spi_get_drvdata(spi);
-	const unsigned long tmo = jiffies + msecs_to_jiffies(20); /* transfer timeout */
 	int rc;
-	bool done;
 
 	cmd[0] = cpu_to_le32 (CMD_ENCODE_RWOP(CMD_RD_OP) | CMD_ENCODE_ADDR(reg_addr) | CMD_ENCODE_WRD_CNT(1));
 	cmd[1] = 0;
@@ -133,37 +131,13 @@ u32 sja1105p_read_reg32(struct spi_device *spi, u32 reg_addr)
 
 	spi_message_add_tail(&t, &m);
 
-	rc = spi_async(spi, &m);
-	if (rc) {
-		dev_info(&spi->dev, "spi_sync rc %d\n", rc);
-		goto spi_read_err;
-	}
-
-	/**
-	 * poll for completion, do not sleep:
-	 * Some function calls (e.g. to ndo_get_stats that results from executing the userspace app 'ifconfig')
-	 * should execute in atomic context. The synchronous spi_sync() may sleep, so it is not suitable here.
-	 *
-	 * Use the asynchronous spi_async() and busy-wait (~33us on average) for its completion.
-	 * cf. https://lists.yoctoproject.org/pipermail/linux-yocto/2016-November/006023.html
-	 *
-	 * Alternative: Poll stats in background and retrieve most recent buffer when needed
-	 * cf. https://patchwork.ozlabs.org/patch/116458/
-	 */
-	do {
-		done = try_wait_for_completion(&sw_ctx->spi_tf_done);
-	} while (!done && time_before(jiffies, tmo));
-	if (!done) {
-		dev_err(&spi->dev, "Error: SPI Read of register @%08x failed (Timeout)!\n", reg_addr);
-		goto spi_read_err;
-	}
+	rc = spi_sync(spi, &m);
+	if (rc)
+		dev_info(&spi->dev, "spi_sync rc %d @%08x \n", rc, reg_addr);
 
 	resp[1] = preprocess_words(resp[1]);
 
 	return le32_to_cpu(resp[1]);
-
-spi_read_err:
-	return 0;
 }
 
 /**
