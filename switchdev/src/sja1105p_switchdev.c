@@ -57,7 +57,7 @@
 
 /* added with Linux commit d643a75ac2bcc559994405d29c50ed086aeae434 */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 1)
-#define SET_SWDEV_OPS(ndev, ops) ndev->swdev_ops = &ops
+#define SET_SWDEV_OPS(ndev, ops) ndev->switchdev_ops = &ops
 #else
 #define SET_SWDEV_OPS(ndev, ops) SWITCHDEV_SET_OPS(ndev, &ops)
 #endif
