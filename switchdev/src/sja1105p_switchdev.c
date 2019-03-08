@@ -66,6 +66,32 @@ enum { UP, DOWN } linkstatus_t;
 
 /* struct declarations */
 typedef struct {
+	uint64_t rx_packets;
+	uint64_t tx_packets;
+	uint64_t rx_bytes;
+	uint64_t tx_bytes;
+	uint64_t rx_errors;
+	uint64_t tx_errors;
+	uint32_t rx_crc_errors;
+	uint32_t rx_length_errors;
+	uint32_t polerr;
+	uint32_t vlanerr;
+	uint32_t n664err;
+	uint32_t not_reach;
+	uint32_t egr_disabled;
+	uint32_t part_drop;
+	uint32_t qfull;
+	uint32_t addr_not_learned_drop;
+	uint32_t empty_route_drop;
+	uint32_t illegal_double_drop;
+	uint32_t double_tagged_drop;
+	uint32_t single_outer_drop;
+	uint32_t single_inner_drop;
+	uint32_t untagged_drop;
+	SJA1105P_macLevelErrors_t p_macLevelErrors;
+} nxp_port_stats_t;
+
+typedef struct {
 	unsigned long ppid;
 	int port_num;
 	unsigned char *base_mac;
@@ -73,6 +99,8 @@ typedef struct {
 	int link_speed;
 	struct port_desc *physical_port;
 	int physical_port_num;
+	nxp_port_stats_t stats;
+	struct delayed_work stats_work;
 } nxp_port_data_t;
 
 /* forward declarations */
@@ -453,6 +481,111 @@ static void set_port_linkstatus(struct net_device *netdev, int status)
 		rtnl_unlock();
 }
 
+static void nxp_update_stats(struct work_struct *work)
+{
+	int err;
+	struct net_device *netdev;
+	struct delayed_work *dwork = to_delayed_work(work);
+
+	nxp_port_data_t *nxp_port =
+		container_of(dwork, nxp_port_data_t, stats_work);
+
+	netdev = nxp_port->physical_port->netdev;
+
+	/* get stats from switch using the sja1105p drv functions */
+	err = SJA1105P_get64bitEtherStatCounter(
+		SJA1105P_e_etherStat64_N_OCTETS, &nxp_port->stats.tx_bytes, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_EGRESS);
+
+	err += SJA1105P_get64bitEtherStatCounter(
+		SJA1105P_e_etherStat64_N_PKTS, &nxp_port->stats.tx_packets, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_EGRESS);
+
+	err += SJA1105P_get64bitEtherStatCounter(
+		SJA1105P_e_etherStat64_N_OCTETS, &nxp_port->stats.rx_bytes, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_INGRESS);
+
+	err += SJA1105P_get64bitEtherStatCounter(
+		SJA1105P_e_etherStat64_N_PKTS, &nxp_port->stats.rx_packets, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_INGRESS);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_CRCERR, &nxp_port->stats.rx_crc_errors,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_SIZEERR, &nxp_port->stats.rx_length_errors,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_NOT_REACH, &nxp_port->stats.not_reach,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_EGR_DISABLED, &nxp_port->stats.egr_disabled,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_PART_DROP, &nxp_port->stats.part_drop,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_QFULL, &nxp_port->stats.qfull, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_POLERR, &nxp_port->stats.polerr, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_VLANERR, &nxp_port->stats.vlanerr, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_N664ERR, &nxp_port->stats.n664err, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_ADDR_NOT_LEARNED_DROP,
+		&nxp_port->stats.addr_not_learned_drop, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_EMPTY_ROUTE_DROP, &nxp_port->stats.empty_route_drop,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_ILLEGAL_DOUBLE_DROP,
+		&nxp_port->stats.illegal_double_drop, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_DOUBLE_TAGGED_DROP,
+		&nxp_port->stats.double_tagged_drop, nxp_port->port_num,
+		SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_SINGLE_OUTER_DROP, &nxp_port->stats.single_outer_drop,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_SINGLE_INNER_DROP, &nxp_port->stats.single_inner_drop,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_get32bitEtherStatCounter(
+		SJA1105P_e_etherStat32_N_UNTAGGED_DROP, &nxp_port->stats.untagged_drop,
+		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
+
+	err += SJA1105P_getMacErrors(&nxp_port->stats.p_macLevelErrors, nxp_port->port_num);
+
+	schedule_delayed_work(&nxp_port->stats_work, HZ);
+
+	if (err)
+		netdev_err(netdev, "Could not read stats from sja1105p!\n");
+
+
+}
+
 /* is a void function since Linux commit bc1f44709cf27fb2a5766cadafe7e2ad5e9cb221 */
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 1)
 static struct rtnl_link_stats64 *nxp_get_stats(struct net_device *netdev,
@@ -461,14 +594,6 @@ static struct rtnl_link_stats64 *nxp_get_stats(struct net_device *netdev,
 static void nxp_get_stats(struct net_device *netdev, struct rtnl_link_stats64 *storage)
 #endif
 {
-	int err;
-	uint64_t tx_bytes, tx_packets, rx_bytes, rx_packets;
-	uint32_t rx_crc_errors, rx_length_errors, polerr, vlanerr, n664err;
-	uint32_t not_reach, egr_disabled, part_drop, qfull;
-	uint32_t addr_not_learned_drop, empty_route_drop, illegal_double_drop;
-	uint32_t double_tagged_drop, single_outer_drop, single_inner_drop,
-		untagged_drop;
-	SJA1105P_macLevelErrors_t p_macLevelErrors = {0};
 	nxp_port_data_t *nxp_port = netdev_priv(netdev);
 
 	/* indicate the linkstate of the port, show host port as always up */
@@ -497,129 +622,40 @@ static void nxp_get_stats(struct net_device *netdev, struct rtnl_link_stats64 *s
 			set_port_linkstatus(netdev, DOWN);
 	}
 
-	/* get stats from switch using the sja1105p drv functions */
-	err = SJA1105P_get64bitEtherStatCounter(
-		SJA1105P_e_etherStat64_N_OCTETS, &tx_bytes, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_EGRESS);
+	/* fill out the provided struct with cached values */
+	storage->tx_bytes = nxp_port->stats.tx_bytes;
+	storage->tx_packets = nxp_port->stats.tx_packets;
+	storage->rx_bytes = nxp_port->stats.rx_bytes;
+	storage->rx_packets = nxp_port->stats.rx_packets;
 
-	err += SJA1105P_get64bitEtherStatCounter(
-		SJA1105P_e_etherStat64_N_PKTS, &tx_packets, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_EGRESS);
+	storage->rx_crc_errors = nxp_port->stats.rx_crc_errors;
+	storage->rx_length_errors = nxp_port->stats.rx_length_errors;
+	storage->rx_frame_errors = nxp_port->stats.p_macLevelErrors.nAlignerr;
 
-	err += SJA1105P_get64bitEtherStatCounter(
-		SJA1105P_e_etherStat64_N_OCTETS, &rx_bytes, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_INGRESS);
+	storage->tx_errors = nxp_port->stats.not_reach + nxp_port->stats.egr_disabled;
+	storage->rx_errors = nxp_port->stats.rx_crc_errors + nxp_port->stats.rx_length_errors + nxp_port->stats.part_drop
+			   + nxp_port->stats.p_macLevelErrors.nSoferr
+			   + nxp_port->stats.p_macLevelErrors.nMiierr
+			   + nxp_port->stats.p_macLevelErrors.nAlignerr;
 
-	err += SJA1105P_get64bitEtherStatCounter(
-		SJA1105P_e_etherStat64_N_PKTS, &rx_packets, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_INGRESS);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_CRCERR, &rx_crc_errors,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_SIZEERR, &rx_length_errors,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_NOT_REACH, &not_reach,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_EGR_DISABLED, &egr_disabled,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_PART_DROP, &part_drop,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_QFULL, &qfull, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_POLERR, &polerr, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_VLANERR, &vlanerr, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_N664ERR, &n664err, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_ADDR_NOT_LEARNED_DROP,
-		&addr_not_learned_drop, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_EMPTY_ROUTE_DROP, &empty_route_drop,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_ILLEGAL_DOUBLE_DROP,
-		&illegal_double_drop, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_DOUBLE_TAGGED_DROP,
-		&double_tagged_drop, nxp_port->port_num,
-		SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_SINGLE_OUTER_DROP, &single_outer_drop,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_SINGLE_INNER_DROP, &single_inner_drop,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_get32bitEtherStatCounter(
-		SJA1105P_e_etherStat32_N_UNTAGGED_DROP, &untagged_drop,
-		nxp_port->port_num, SJA1105P_e_etherStatDirection_BOTH);
-
-	err += SJA1105P_getMacErrors(&p_macLevelErrors, nxp_port->port_num);
-
-	if (err)
-		goto sja1105p_read_error;
-
-	/* fill out the provided struct */
-	storage->tx_bytes = tx_bytes;
-	storage->tx_packets = tx_packets;
-	storage->rx_bytes = rx_bytes;
-	storage->rx_packets = rx_packets;
-
-	storage->rx_crc_errors = rx_crc_errors;
-	storage->rx_length_errors = rx_length_errors;
-	storage->rx_frame_errors = p_macLevelErrors.nAlignerr;
-
-	storage->tx_errors = not_reach + egr_disabled;
-	storage->rx_errors = rx_crc_errors + rx_length_errors + part_drop
-			   + p_macLevelErrors.nSoferr
-			   + p_macLevelErrors.nMiierr
-			   + p_macLevelErrors.nAlignerr;
-
-	storage->tx_dropped = qfull;
-	storage->rx_dropped = part_drop + polerr + vlanerr + n664err;
-	storage->rx_dropped += addr_not_learned_drop + empty_route_drop
-			     + illegal_double_drop + double_tagged_drop
-			     + single_outer_drop + single_inner_drop
-			     + untagged_drop;
+	storage->tx_dropped = nxp_port->stats.qfull;
+	storage->rx_dropped = nxp_port->stats.part_drop + nxp_port->stats.polerr + nxp_port->stats.vlanerr + nxp_port->stats.n664err;
+	storage->rx_dropped += nxp_port->stats.addr_not_learned_drop + nxp_port->stats.empty_route_drop
+			     + nxp_port->stats.illegal_double_drop + nxp_port->stats.double_tagged_drop
+			     + nxp_port->stats.single_outer_drop + nxp_port->stats.single_inner_drop
+			     + nxp_port->stats.untagged_drop;
 
 	if (verbosity > 3) {
 		netdev_alert(
 			netdev,
-			"%s called for [%d]: rxb [%llu], txb [%llu],"
-			"rxp [%llu], txp [%llu], rx_crc_errors[%u], rx_length_errors[%u],"
+			"%s called for [%d]: txb [%llu], txp [%llu],"
+			"rxb [%llu], rxp [%llu], rx_crc_errors[%u], rx_length_errors[%u],"
 			"not_reach[%u], egr_disabled[%u], part_drop[%u], qfull[%u],"
 			"polerr[%u], vlanerr[%u], n664err[%u]\n",
-			__func__, nxp_port->port_num, tx_bytes, tx_packets,
-			rx_bytes, rx_packets, rx_crc_errors, rx_length_errors,
-			not_reach, egr_disabled, part_drop, qfull, polerr,
-			vlanerr, n664err);
+			__func__, nxp_port->port_num, nxp_port->stats.tx_bytes, nxp_port->stats.tx_packets,
+			nxp_port->stats.rx_bytes, nxp_port->stats.rx_packets, nxp_port->stats.rx_crc_errors, nxp_port->stats.rx_length_errors,
+			nxp_port->stats.not_reach, nxp_port->stats.egr_disabled, nxp_port->stats.part_drop, nxp_port->stats.qfull, nxp_port->stats.polerr,
+			nxp_port->stats.vlanerr, nxp_port->stats.n664err);
 	}
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 1)
@@ -628,12 +664,6 @@ static void nxp_get_stats(struct net_device *netdev, struct rtnl_link_stats64 *s
 	return;
 #endif
 
-sja1105p_read_error:
-	netdev_err(netdev, "Could not read stats from sja1105p!\n");
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 1)
-	return storage;
-#endif
 }
 
 /* this function is called when a VLAN id is registered */
@@ -1270,8 +1300,10 @@ int register_port(struct port_desc *p_desc, int port, int unused)
 	SJA1105P_port_t physicalPortInfo = {0};
 
 	netdev = alloc_etherdev(sizeof(*nxp_port));
-	if (!netdev)
-		goto allocation_error;
+	if (!netdev) {
+		err = -ENOMEM;
+		goto netdev_allocation_error;
+	}
 
 	/* get private memory from netdev,
 	 * which is located behind the netdev struct
@@ -1280,8 +1312,11 @@ int register_port(struct port_desc *p_desc, int port, int unused)
 
 	/* get info about the physical port */
 	err = SJA1105P_getPhysicalPort(port, &physicalPortInfo);
-	if (err)
+	if (err) {
+		pr_err("register_ports failed: could not read physical port data from sja1105p for port %d!\n",
+		       port);
 		goto sja1105p_read_error;
+	}
 
 	ctx = get_ctx_of_port(p_desc, physicalPortInfo.physicalPort);
 	spidev = ctx->spi_dev;
@@ -1292,18 +1327,25 @@ int register_port(struct port_desc *p_desc, int port, int unused)
 	nxp_port->physical_port = p_desc;
 	nxp_port->physical_port_num = physicalPortInfo.physicalPort;
 
+	/*reset cached stats*/
+	memset(&nxp_port->stats, 0, sizeof(nxp_port_stats_t));
+
 	/* save netdev so it can be unregistered later */
 	nxp_port->physical_port->netdev = netdev;
 
 	/* give dev a meaningful name */
 	port_name = kzalloc(sizeof(char) * PORT_NAME_LEN, GFP_KERNEL);
-	if (!port_name)
-		goto allocation_error;
+	if (!port_name) {
+		err = -ENOMEM;
+		goto port_name_allocation_error;
+	}
 	scnprintf(port_name, PORT_NAME_LEN, "%s_p%d%s", PRODUCT_NAME, port,
 		  nxp_port->physical_port->is_host ? "*" : "");
 	err = dev_alloc_name(netdev, port_name);
-	if (err)
-		goto allocation_error;
+	if (err) {
+		err = -ENOMEM;
+		goto devname_allocation_error;
+	}
 
 	/* populate netdev */
 	netdev->netdev_ops = &nxp_port_netdev_ops;
@@ -1331,35 +1373,38 @@ int register_port(struct port_desc *p_desc, int port, int unused)
 	}
 
 	err = register_netdev(netdev);
-	if (err)
+	if (err) {
+		pr_err("register_netdev failed for port [%d]\n", port);
 		goto netdev_registration_error;
+	}
+
+	/*Init and schedule the stats work*/
+	INIT_DELAYED_WORK(&nxp_port->stats_work, nxp_update_stats);
+	schedule_delayed_work(&nxp_port->stats_work, HZ);
 
 	if (verbosity > 0)
 		netdev_info(netdev, "registered netdevice: [%s]\n",
 			    netdev->name);
-
 	return 0;
 
-allocation_error:
-	pr_err("register_ports failed for port %d: memory allocation error\n",
-	       port);
-	return -ENOMEM;
-
-sja1105p_read_error:
-	pr_err("register_ports failed: could not read physical port data from sja1105p for port %d!\n",
-	       port);
-	free_netdev(netdev);
-	return err;
-
 netdev_registration_error:
-	pr_err("register_netdev failed for port [%d]\n", port);
+	cancel_delayed_work_sync(&nxp_port->stats_work);
+devname_allocation_error:
+	kfree(port_name);
+port_name_allocation_error:
+sja1105p_read_error:
 	free_netdev(netdev);
+netdev_allocation_error:
 	return err;
 }
 
 int unregister_port(struct port_desc *physical_port, int unused, int unused2)
 {
+	nxp_port_data_t *nxp_port;
 	struct net_device *netdev = physical_port->netdev;
+
+	nxp_port = netdev_priv(netdev);
+
 	if (netdev) {
 		if (netdev->phydev) {
 			struct phy_device *phydev = netdev->phydev;
@@ -1380,6 +1425,7 @@ int unregister_port(struct port_desc *physical_port, int unused, int unused2)
 		if (verbosity > 0)
 			netdev_alert(netdev, "unregistering: [%s]\n", netdev->name);
 
+		cancel_delayed_work_sync(&nxp_port->stats_work);
 		unregister_netdev(netdev);
 		free_netdev(netdev);
 	}
