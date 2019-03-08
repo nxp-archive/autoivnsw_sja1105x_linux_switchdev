@@ -1,10 +1,10 @@
-# SJA1105PQRS Linux Switch Driver Release v0.2 - User Notes
+# SJA1105PQRS Linux Switch Driver Release v0.2.1 - User Notes
 
 ## Changelog
-v0.1: (Feb 2018)
+v0.1.0: (Feb 2018)
 - Initial release
 
-v0.2: (Dez 2018)
+v0.2.0: (Dec 2018)
 - Add support for PHY power management
 - Add support for multiple [Linux versions](#supported-linux-versions)
 - Fix SPI communication for S32V234 platform
@@ -14,6 +14,11 @@ v0.2: (Dez 2018)
 - Add support for dynamic link speed changes
 - Add support for Linux userspace tool 'ethtool'
 - Miscellaneous improvements and bug fixes
+
+v0.2.1: (Mar 2019)
+- End-of-Line normalization
+- Reverted SPI read to synchronous
+- Fixed wrong name for switchdev ops for older Linux version < 4.13.1
 
 ---
 
